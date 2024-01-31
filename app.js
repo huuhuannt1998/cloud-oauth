@@ -10,10 +10,12 @@ const _ = require("underscore");
 const session = require("express-session");
 const randomstring = require("randomstring");
 const bodyParser = require("body-parser");
+
+
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "http://localhost:3000/auth/google/callback"
+    callbackURL: "https://cloud-oauth-glitch.glitch.me/oauth/login"
   },
   function(accessToken, refreshToken, profile, done) {
     // Logic for user profile
@@ -21,12 +23,11 @@ passport.use(new GoogleStrategy({
   }
 ));
 
-passport.serializeUser((user, done) => {
-  done(null, user.id);
+passport.serializeUser(function(user, done) {
+  done(null, user);
 });
 
-passport.deserializeUser((id, done) => {
-  // Logic to find user by ID
+passport.deserializeUser(function(user, done) {
   done(null, user);
 });
 
@@ -39,19 +40,9 @@ app.use(morgan(":method :url :status Authorization: :req[authorization] Debug in
 app.use(bodyParser.urlencoded({ extended: false }));
 
 
-app.use(session({
-  secret: 'your_secret_key', // replace with a real secret key
-  resave: false,
-  saveUninitialized: true
-}));
+app.use(session({ secret: 'cats', resave: false, saveUninitialized: true }));
 app.use(passport.initialize());
 app.use(passport.session());
-app.use(session({
-  secret: "keyboard cat",
-  resave: false,
-  saveUninitialized: true,
-  cookie: {secure: false}
-}))
 
 const EXPECTED_CLIENT_ID = process.env.EXPECTED_CLIENT_ID || "dummy-client-id";
 const EXPECTED_CLIENT_SECRET = process.env.EXPECTED_CLIENT_SECRET || "dummy-client-secret";
@@ -74,6 +65,10 @@ const refresh2personData = {};
 const authHeader2personData = {};
 const id_token2personData = {};
 let redirect_uri;
+
+function isLoggedIn(req, res, next) {
+  req.user ? next() : res.sendStatus(401);
+}
 
 function now() {
   return Math.round(new Date().valueOf() / 1000);
@@ -209,20 +204,37 @@ app.get('/', (req, res) => {
   }));
 });
 
-app.get(AUTH_REQUEST_PATH, (req, res) => {
-  if (validateAuthPageRequest(req, res)) {
-    req.session.redirect_uri = req.query.redirect_uri;
-    redirect_uri = req.query.redirect_uri;
-    if (req.query.state) {
-      req.session.client_state = req.query.state;
-    }
-    res.send(ui({
-      query: req.query,
-      username: `${randomstring.generate(4)}@${randomstring.generate(4)}.com`,
-      password: randomstring.generate(4)
-    }));
+// app.get(AUTH_REQUEST_PATH, (req, res) => {
+//   if (validateAuthPageRequest(req, res)) {
+//     req.session.redirect_uri = req.query.redirect_uri;
+//     redirect_uri = req.query.redirect_uri;
+//     if (req.query.state) {
+//       req.session.client_state = req.query.state;
+//     }
+//     res.send(ui({
+//       query: req.query,
+//       username: `${randomstring.generate(4)}@${randomstring.generate(4)}.com`,
+//       password: randomstring.generate(4)
+//     }));
+//   }
+//   res.end();
+// });
+
+app.get(AUTH_REQUEST_PATH,
+  passport.authenticate('google', { 
+    scope: ['email', 'profile'], 
+    prompt: 'select_account',
+    successRedirect: '/protected',
+    failureRedirect: '/auth/google/failure'
   }
-  res.end();
+));
+
+app.get('/protected', isLoggedIn, (req, res) => {
+    res.send(`Hello ${req.user.displayName}`);
+});
+
+app.get('/auth/google/failure', (req, res) => {
+  res.send('Failed to authenticate..');
 });
 
 app.get("/login-as", (req, res) => {
@@ -266,14 +278,7 @@ module.exports = {
   ACCESS_TOKEN_REQUEST_PATH : ACCESS_TOKEN_REQUEST_PATH,
   ACCESS_TOKEN_PREFIX: ACCESS_TOKEN_PREFIX
 };
-app.get('/auth/google',
-  passport.authenticate('google', { 
-    scope: ['email', 'profile'], 
-    prompt: 'select_account',
-    successRedirect: '/protected',
-    failureRedirect: '/auth/google/failure'
-  }
-));
+
 
 app.get('/auth/google/callback', 
   passport.authenticate('google', { failureRedirect: '/login' }),
